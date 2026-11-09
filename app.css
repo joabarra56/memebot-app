@@ -189,3 +189,26 @@ input, select { font: inherit; }
 .odometer { display: inline-flex; overflow: hidden; height: 1em; line-height: 1; }
 .odometer .col { display: inline-block; height: 1em; overflow: hidden; }
 .odometer .col span { display: block; transition: transform 600ms ease-out; }
+
+/* paper wallet + memecoin trades (bottom of home) */
+.wallet-card { background: var(--card); margin: 8px 16px 0; border-radius: 16px; padding: 14px 16px; }
+.wallet-card .wallet-total { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.wallet-card .wallet-total .k { color: var(--secondary); font-size: 13px; }
+.wallet-card .wallet-total .v { font-size: 28px; font-weight: 650; letter-spacing: -0.6px; }
+.wallet-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.wallet-split > div { display: flex; flex-direction: column; gap: 2px; }
+.wallet-split .k { color: var(--secondary); font-size: 12px; }
+.wallet-split .v { font-size: 16px; font-weight: 600; }
+.status-pill { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px;
+  font-size: 11px; font-weight: 650; margin-left: 6px; vertical-align: middle; }
+.status-pill.open, .status-pill.exiting { background: rgba(100,210,255,0.16); color: var(--cyan); }
+.status-pill.closed { background: var(--card2); color: var(--secondary); }
+.row .right .s { font-size: 12px; font-weight: 500; margin-top: 2px; color: inherit; opacity: 0.85; }
+.trades-block { margin-top: 8px; }
+
+/* HyperGrok paper challenge (bottom of home) */
+.hg-block { margin-top: 12px; padding-bottom: 24px; }
+.hg-block .section h2 { font-size: 20px; }
+.hg-rule { margin-top: 12px; color: var(--secondary); font-size: 12px; line-height: 1.35; }
+.status-pill.skip, .status-pill.unverified { background: var(--card2); color: var(--secondary); }
+.status-pill.blocked, .status-pill.unfillable { background: rgba(255,69,58,0.16); color: var(--red); }
