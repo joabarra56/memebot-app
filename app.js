@@ -296,6 +296,7 @@
     const cash = d.cash != null ? d.cash : d.balance;
     const openValue = d.open_value != null ? d.open_value : 0;
     const total = d.balance != null ? d.balance : (Number(cash) + Number(openValue));
+    const { opens, closed } = openClosedSplit(d.positions || []);
     return `
       <div class="trades-block">
         <div class="section"><h2>Ton argent</h2></div>
@@ -310,41 +311,101 @@
           </div>
         </div>
         <div class="section"><h2>Mes memecoins</h2></div>
-        <div class="list" id="homeTrades">${positionRows(d.positions || [])}</div>
+        <div class="list" id="homeTrades">${openPositionRows(opens)}</div>
+        ${historyBlock(closed, { expand: opens.length === 0 })}
       </div>`;
   }
 
-  function positionRows(rows) {
-    if (!rows || !rows.length) {
-      return `<div class="empty">Aucun trade pour l'instant</div>`;
+  function openClosedSplit(rows) {
+    const list = rows || [];
+    const opens = list.filter((p) => p.status !== "closed");
+    const closed = list.filter((p) => p.status === "closed");
+    const recency = (p) => p.opened_at || p.closed_at || "";
+    opens.sort((a, b) => recency(b).localeCompare(recency(a)));
+    return { opens, closed };
+  }
+
+  function traderLabel(p) {
+    if (p.source_kind === "copy" || p.copy_trader || p.strategy === "copy") {
+      return "copie " + (p.source || p.copy_trader || "trader");
     }
-    const statusLabel = { open: "Ouvert", exiting: "En vente", closed: "Fermé" };
+    return "scanner";
+  }
+
+  function openPositionRows(rows) {
+    if (!rows || !rows.length) {
+      return `<div class="empty">Aucun coin en ce moment — le bot achète dès qu'un trader achète</div>`;
+    }
     return rows.map((p) => {
-      const isOpen = p.status !== "closed";
       const pnl = Number(p.pnl_usd || 0);
       const cls = pnl > 0 ? "up" : pnl < 0 ? "down" : "";
-      const src = p.source_kind === "copy"
-        ? ("copie " + (p.source || p.copy_trader || ""))
-        : "scanner";
-      const rightMain = isOpen ? money(p.current_value) : signedMoney(pnl);
-      const rightSub = isOpen ? (signedMoney(pnl) + " · " + fmtPct(p.pnl_pct)) : ("P&amp;L " + signedMoney(pnl));
-      const chg = p.change_h24 != null ? Number(p.change_h24) : (isOpen ? Number(p.pnl_pct || 0) : null);
-      const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "";
+      const name = p.symbol || p.name || "memecoin";
       return `<div class="row token-row" data-open="coin" data-mint="${esc(p.mint || "")}">
         ${logoHtml(p.logo_url, p.name || p.symbol)}
         <div class="mid">
-          <div class="t">${esc(p.symbol || p.name || "memecoin")}
-            <span class="status-pill ${esc(p.status || "open")}">${statusLabel[p.status] || esc(p.status)}</span>
-          </div>
-          <div class="s">${esc(p.name && p.symbol && p.name !== p.symbol ? p.name : src)} · misé ${money(p.size_usd)}</div>
+          <div class="t">${esc(name)}</div>
+          <div class="s">${esc(traderLabel(p))}</div>
         </div>
         ${sparkSvg(p.spark)}
-        <div class="right ${isOpen ? chgCls : cls}">
-          <div class="px num">${isOpen ? fmtPrice(p.current_price) : rightMain}</div>
-          <div class="s">${isOpen ? (arrow(chg) + " " + fmtPct(chg)) : rightSub}</div>
+        <div class="right ${cls}">
+          <div class="px num">${money(p.current_value)}</div>
+          <div class="s">${signedMoney(pnl)} · ${fmtPct(p.pnl_pct)}</div>
         </div>
       </div>`;
     }).join("");
+  }
+
+  function historyGroups(rows) {
+    const map = new Map();
+    for (const p of rows || []) {
+      const key = p.mint || p.symbol || p.name || "?";
+      let g = map.get(key);
+      if (!g) {
+        g = {
+          mint: p.mint || "",
+          name: p.symbol || p.name || "memecoin",
+          logo: p.logo_url,
+          count: 0,
+          pnl: 0,
+          last: p.closed_at || p.opened_at || "",
+        };
+        map.set(key, g);
+      }
+      g.count += 1;
+      g.pnl += Number(p.pnl_usd || 0);
+      const ts = p.closed_at || p.opened_at || "";
+      if (ts > g.last) g.last = ts;
+      if (p.logo_url) g.logo = p.logo_url;
+      if (p.symbol) g.name = p.symbol;
+      else if (p.name && g.name === "memecoin") g.name = p.name;
+    }
+    return [...map.values()].sort((a, b) => (b.last || "").localeCompare(a.last || ""));
+  }
+
+  function historyBlock(rows, opts) {
+    const groups = historyGroups(rows);
+    if (!groups.length) return "";
+    const total = groups.reduce((s, g) => s + g.pnl, 0);
+    const cls = total > 0 ? "up" : total < 0 ? "down" : "";
+    const openAttr = (opts && opts.expand) ? " open" : "";
+    const items = groups.map((g) => {
+      const gcls = g.pnl > 0 ? "up" : g.pnl < 0 ? "down" : "";
+      return `<div class="row token-row hist-row" data-open="coin" data-mint="${esc(g.mint)}">
+        ${logoHtml(g.logo, g.name)}
+        <div class="mid">
+          <div class="t">${esc(g.name)} <span class="hist-count">×${g.count}</span></div>
+          <div class="s">P&amp;L total</div>
+        </div>
+        <div class="right ${gcls}"><div class="px num">${signedMoney(g.pnl)}</div></div>
+      </div>`;
+    }).join("");
+    return `<details class="hist-block"${openAttr}>
+      <summary class="hist-summary">
+        <h2>Historique</h2>
+        <span class="hist-realized ${cls}">Réalisé ${signedMoney(total)}</span>
+      </summary>
+      <div class="list" id="homeHistory">${items}</div>
+    </details>`;
   }
 
 

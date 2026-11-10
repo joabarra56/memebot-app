@@ -205,6 +205,19 @@ input, select { font: inherit; }
 .status-pill.closed { background: var(--card2); color: var(--secondary); }
 .row .right .s { font-size: 12px; font-weight: 500; margin-top: 2px; color: inherit; opacity: 0.85; }
 .trades-block { margin-top: 8px; }
+.hist-block { margin-top: 4px; padding-bottom: 8px; }
+.hist-summary { list-style: none; display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; padding: 8px 16px; min-height: 44px; cursor: pointer; }
+.hist-summary::-webkit-details-marker, .hist-summary::marker { display: none; }
+.hist-summary h2 { margin: 0; font-size: 20px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.hist-summary h2::after { content: ""; width: 7px; height: 7px; border-right: 2px solid var(--secondary);
+  border-bottom: 2px solid var(--secondary); transform: rotate(-45deg); margin-top: -2px; }
+.hist-block[open] .hist-summary h2::after { transform: rotate(45deg); margin-top: -4px; }
+.hist-realized { font-size: 15px; font-weight: 650; }
+.hist-realized.up { color: var(--green); }
+.hist-realized.down { color: var(--red); }
+.hist-count { color: var(--secondary); font-weight: 600; margin-left: 2px; }
+.hist-row .right { font-variant-numeric: tabular-nums; }
 
 /* HyperGrok paper challenge (bottom of home) */
 .hg-block { margin-top: 12px; padding-bottom: 24px; }
