@@ -798,7 +798,11 @@
           <div><div class="k">Actuel</div><div class="v num" id="posNow">${fmtPrice(c.price)}</div></div>
           <div><div class="k">P&amp;L</div><div class="v num ${sinceUp?"up":"down"}" id="posPnl">${since!=null?(signedMoney((pos.size_usd||0)*((c.price||pos.entry_price)/pos.entry_price-1))+" ("+fmtPct(since)+")"):"—"}</div></div>
         </div>
-        <div class="s pos-stop">Stop ${fmtPrice(pos.stop_price)}${c.trail_line ? " · trail " + fmtPrice(c.trail_line) : ""}${c.timeout_left_s!=null?" · "+Math.round(c.timeout_left_s/60)+"m restantes":""}</div>
+        <div class="s pos-stop">${
+          (pos.strategy === "copy" || pos.copy_trader)
+            ? esc(c.exit_label || ("Sortie : quand " + (pos.copy_trader || "le trader") + " vend · sécurité -" + (c.copy_safety_stop_pct != null ? c.copy_safety_stop_pct : 30) + "%"))
+            : ("Stop " + fmtPrice(pos.stop_price) + (c.trail_line ? " · trail " + fmtPrice(c.trail_line) : "") + (c.timeout_left_s!=null?" · "+Math.round(c.timeout_left_s/60)+"m restantes":""))
+        }</div>
       </div>` : ""}
       <a class="cta" href="${c.coin_url}" target="_blank" rel="noopener">${pos ? "Vendre sur FOMO" : "Acheter sur FOMO"}</a>`;
     $("#back").onclick = () => { stopCoinLive(); state.screen = "home"; render(); };
