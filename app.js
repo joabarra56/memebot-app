@@ -221,7 +221,7 @@
         <span class="pill mult">${(d.multiplier || 0).toFixed(2)}×</span>
       </div>
       <div class="sub">copie ${signedMoney(d.copy_pnl||0)} · scanner ${signedMoney(d.scanner_pnl||0)}${(d.copy_open?` · ${d.copy_open} copie ouverte${d.copy_open>1?"s":""}`:"")}</div>
-      <div class="chart-wrap"><canvas id="homeChart" style="width:100%;height:180px"></canvas></div>
+      <div class="chart-wrap"><canvas id="homeChart" style="width:100%;height:180px"></canvas><div id="equityTip" class="chart-tip hidden"></div></div>
       <div class="ranges" id="ranges">
         ${["LIVE","1H","4H","1D","1W","ALL"].map(r =>
           `<button data-r="${r}" class="${state.range===r?"on":""}">${r}</button>`).join("")}
@@ -910,10 +910,63 @@
       drawHomeChart();
     } catch (e) {}
   }
+  function hideEquityTip() {
+    const tip = $("#equityTip");
+    if (tip) tip.classList.add("hidden");
+  }
+  function showEquityTip(canvas, hit) {
+    const tip = $("#equityTip");
+    if (!tip) return;
+    if (!hit) { tip.classList.add("hidden"); return; }
+    const cls = hit.kind === "bought" ? "up" : "down";
+    const val = hit.value ? " · " + hit.value : "";
+    tip.innerHTML = `<span class="${cls}">●</span> ${esc(hit.label || "")}${esc(val)}`;
+    tip.classList.remove("hidden");
+    const wrap = canvas.parentElement;
+    const wRect = wrap.getBoundingClientRect();
+    const cRect = canvas.getBoundingClientRect();
+    const x = cRect.left - wRect.left + hit.x;
+    const y = cRect.top - wRect.top + hit.y;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+    const tipW = tip.offsetWidth || 80;
+    const maxL = (wrap.clientWidth || wRect.width) - tipW / 2 - 8;
+    const minL = tipW / 2 + 8;
+    if (x > maxL) tip.style.left = maxL + "px";
+    if (x < minL) tip.style.left = minL + "px";
+  }
+  function bindHomeChartTaps(canvas) {
+    if (canvas._boundMarks) return;
+    canvas._boundMarks = true;
+    const pick = (ev) => {
+      const hits = canvas._markHits || [];
+      if (!hits.length) { hideEquityTip(); return; }
+      const src = (ev.changedTouches && ev.changedTouches[0]) || (ev.touches && ev.touches[0]) || ev;
+      const rect = canvas.getBoundingClientRect();
+      const x = src.clientX - rect.left;
+      const y = src.clientY - rect.top;
+      let best = null, bestD = 28;
+      hits.forEach((h) => {
+        const d = Math.hypot(h.x - x, h.y - y);
+        if (d < bestD) { best = h; bestD = d; }
+      });
+      if (best) {
+        if (ev.cancelable) ev.preventDefault();
+        ev.stopPropagation();
+        showEquityTip(canvas, best);
+      } else {
+        hideEquityTip();
+      }
+    };
+    canvas.addEventListener("click", pick);
+    canvas.addEventListener("touchend", pick, { passive: false });
+  }
   function drawHomeChart() {
     const canvas = $("#homeChart");
     if (!canvas) return;
+    hideEquityTip();
     DeskCharts.drawLineChart(canvas, chartCache.points || [], chartCache.marks || [], chartCache.start);
+    bindHomeChartTaps(canvas);
   }
 
   async function loadDecisions() {

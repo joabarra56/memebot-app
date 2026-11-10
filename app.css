@@ -235,3 +235,35 @@ input, select { font: inherit; }
 .pos-grid .v { font-size: 16px; font-weight: 650; margin-top: 2px; }
 .pos-stop { margin-top: 12px; font-size: 13px; }
 .cta { background: #fff; color: #000; }
+
+.chart-wrap { position: relative; }
+.chart-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  background: #1c1c1e;
+  border: 1px solid rgba(84,84,88,0.55);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 9px;
+  border-radius: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.45);
+}
+.chart-tip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  margin-left: -5px;
+  border: 5px solid transparent;
+  border-top-color: #1c1c1e;
+  border-bottom-width: 0;
+}
+.chart-tip .up { color: var(--green); }
+.chart-tip .down { color: var(--red); }

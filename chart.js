@@ -85,32 +85,49 @@
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // marks, avoid overlap by stacking
-    if (marks && marks.length) {
-      const slots = [];
-      marks.forEach((m) => {
-        const t = new Date(m.ts).getTime();
-        const first = new Date(points[0].ts).getTime();
-        const last = new Date(points[points.length - 1].ts).getTime();
-        const r = last === first ? 0 : (t - first) / (last - first);
-        const x = left + Math.min(1, Math.max(0, r)) * (right - left);
-        let y = top + 6;
-        while (slots.some((s) => Math.abs(s - x) < 64 && Math.abs(s - x) < 64)) {
-          y += 14;
-          break;
+    // Buy / sell dots on the equity line. Labels are shown only on tap
+    // (see bindHomeChartTaps in app.js) so they never stack at the right edge.
+    const hits = [];
+    const firstT = new Date(points[0].ts).getTime();
+    const lastT = new Date(points[points.length - 1].ts).getTime();
+    const valueAt = (ts) => {
+      const t = new Date(ts).getTime();
+      if (!Number.isFinite(t)) return +points[points.length - 1].value;
+      if (t <= firstT) return +points[0].value;
+      if (t >= lastT) return +points[points.length - 1].value;
+      for (let i = 1; i < points.length; i++) {
+        const t0 = new Date(points[i - 1].ts).getTime();
+        const t1 = new Date(points[i].ts).getTime();
+        if (t <= t1) {
+          const r = t1 === t0 ? 0 : (t - t0) / (t1 - t0);
+          return +points[i - 1].value + r * (+points[i].value - +points[i - 1].value);
         }
-        // stack overlapping x
-        const overlap = slots.filter((s) => Math.abs(s.x - x) < 70).length;
-        y = top + 4 + overlap * 14;
-        slots.push({ x, y });
-        ctx.font = "11px -apple-system, BlinkMacSystemFont, sans-serif";
-        ctx.textAlign = "center";
-        if (m.kind === "bought") ctx.fillStyle = "#0a84ff";
-        else if (m.kind === "stopped" || (m.value || "").startsWith("-")) ctx.fillStyle = "#ff453a";
-        else ctx.fillStyle = "#00d35a";
-        ctx.fillText(m.label || m.value || "", x, y);
+      }
+      return +points[points.length - 1].value;
+    };
+    (marks || []).forEach((m) => {
+      const t = new Date(m.ts).getTime();
+      const r = lastT === firstT ? 1 : (t - firstT) / (lastT - firstT);
+      const x = left + Math.min(1, Math.max(0, r)) * (right - left);
+      const y = yAt(valueAt(m.ts));
+      const buy = m.kind === "bought";
+      ctx.beginPath();
+      ctx.arc(x, y, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = buy ? "#00d35a" : "#ff453a";
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = "#000";
+      ctx.stroke();
+      hits.push({
+        x, y,
+        kind: m.kind,
+        label: m.label || "",
+        value: m.value || "",
+        mint: m.mint || "",
       });
-    }
+    });
+    canvas._markHits = hits;
+    return hits;
   }
 
   function drawCandles(canvas, candles, exitLine) {
