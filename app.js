@@ -120,14 +120,41 @@
     return (n > 0 ? "+" : "") + money(n);
   }
   function fmtPrice(n) {
-    if (n == null || Number.isNaN(n)) return "—";
-    const a = Math.abs(n);
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    n = Number(n);
     const sign = n < 0 ? "-" : "";
+    const a = Math.abs(n);
     let body;
-    if (a >= 1) body = a.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-    else if (a >= 0.0001) body = a.toPrecision(4);
-    else body = a.toExponential(2);
+    if (a >= 1000) body = a.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    else if (a >= 1) body = a.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    else if (a >= 0.01) body = a.toFixed(4);
+    else if (a > 0) {
+      const s = a.toPrecision(4);
+      body = /e/i.test(s) ? a.toExponential(2) : String(Number(s));
+    } else body = "0.00";
     return sign + "$" + body;
+  }
+  function nusd(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    const nice = (typeof DeskCharts !== "undefined" && DeskCharts.nice) ? DeskCharts.nice(Number(n)) : String(n);
+    if (nice === "—") return "—";
+    return "$" + nice;
+  }
+  function arrow(n) { return n == null ? "" : (n >= 0 ? "▲" : "▼"); }
+  function sparkSvg(pts) {
+    if (!pts || pts.length < 2) return "";
+    const nums = pts.map(Number).filter((x) => !Number.isNaN(x));
+    if (nums.length < 2) return "";
+    const min = Math.min(...nums), max = Math.max(...nums), span = max - min || 1;
+    const w = 72, h = 28;
+    const d = nums.map((p, i) => {
+      const x = (i / (nums.length - 1)) * w;
+      const y = h - 2 - ((p - min) / span) * (h - 4);
+      return (i ? "L" : "M") + x.toFixed(1) + "," + y.toFixed(1);
+    }).join(" ");
+    const up = nums[nums.length - 1] >= nums[0];
+    const color = up ? "#00d35a" : "#ff453a";
+    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
   }
   function initials(name) { return (name || "?").slice(0, 2).toUpperCase(); }
   function logoHtml(url, name) {
@@ -145,6 +172,7 @@
 
   /* ---------- screens ---------- */
   function render() {
+    if (state.screen !== "coin") stopCoinLive();
     if (state.screen === "coin") return renderCoin();
     if (state.screen === "auditor") return renderAuditor();
     if (state.screen === "search") return renderSearch();
@@ -300,15 +328,21 @@
         : "scanner";
       const rightMain = isOpen ? money(p.current_value) : signedMoney(pnl);
       const rightSub = isOpen ? (signedMoney(pnl) + " · " + fmtPct(p.pnl_pct)) : ("P&amp;L " + signedMoney(pnl));
-      return `<div class="row" data-open="coin" data-mint="${esc(p.mint || "")}">
+      const chg = p.change_h24 != null ? Number(p.change_h24) : (isOpen ? Number(p.pnl_pct || 0) : null);
+      const chgCls = chg > 0 ? "up" : chg < 0 ? "down" : "";
+      return `<div class="row token-row" data-open="coin" data-mint="${esc(p.mint || "")}">
         ${logoHtml(p.logo_url, p.name || p.symbol)}
         <div class="mid">
           <div class="t">${esc(p.symbol || p.name || "memecoin")}
             <span class="status-pill ${esc(p.status || "open")}">${statusLabel[p.status] || esc(p.status)}</span>
           </div>
-          <div class="s">Misé ${money(p.size_usd)} · entrée ${fmtPrice(p.entry_price)} · ${esc(src)}</div>
+          <div class="s">${esc(p.name && p.symbol && p.name !== p.symbol ? p.name : src)} · misé ${money(p.size_usd)}</div>
         </div>
-        <div class="right ${cls}">${rightMain}<div class="s">${rightSub}</div></div>
+        ${sparkSvg(p.spark)}
+        <div class="right ${isOpen ? chgCls : cls}">
+          <div class="px num">${isOpen ? fmtPrice(p.current_price) : rightMain}</div>
+          <div class="s">${isOpen ? (arrow(chg) + " " + fmtPct(chg)) : rightSub}</div>
+        </div>
       </div>`;
     }).join("");
   }
@@ -541,36 +575,254 @@
     catch (e) { alert(url); }
   }
 
+  let coinLive = { timer: null, chart: null, series: null, mint: null, range: "15m" };
+
+  function stopCoinLive() {
+    if (coinLive.timer) { clearInterval(coinLive.timer); coinLive.timer = null; }
+    if (coinLive.chart) {
+      try { coinLive.chart.remove(); } catch (e) {}
+      coinLive.chart = null;
+      coinLive.series = null;
+    }
+    coinLive.mint = null;
+  }
+
+  function candleTime(ts) {
+    if (ts == null) return null;
+    if (typeof ts === "number") return Math.floor(ts > 1e12 ? ts / 1000 : ts);
+    const s = String(ts);
+    const d = new Date(s.length === 16 ? s + ":00Z" : s);
+    const sec = Math.floor(d.getTime() / 1000);
+    return Number.isFinite(sec) ? sec : null;
+  }
+
+  function snapshotCandles(c) {
+    return (c.candles || []).map((x) => {
+      const time = candleTime(x.ts || x.time);
+      if (time == null) return null;
+      return { time, open: +x.o, high: +x.h, low: +x.l, close: +x.c };
+    }).filter((x) => x && Number.isFinite(x.open) && Number.isFinite(x.close));
+  }
+
+  async function fetchDexToken(mint) {
+    const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/" + encodeURIComponent(mint), { cache: "no-store" });
+    if (!r.ok) throw new Error("dex");
+    const d = await r.json();
+    const pairs = (d && d.pairs) || (Array.isArray(d) ? d : []);
+    const priced = (arr) => arr.filter((p) => p.priceUsd);
+    const asBase = (arr) => arr.filter((p) => ((p.baseToken || {}).address === mint));
+    const sol = priced(pairs.filter((p) => (p.chainId || "").toLowerCase() === "solana"));
+    let pool = asBase(sol.length ? sol : priced(pairs));
+    if (!pool.length) return null;
+    pool.sort((a, b) => Number((b.liquidity || {}).usd || 0) - Number((a.liquidity || {}).usd || 0));
+    const best = pool[0];
+    if (!best) return null;
+    return {
+      price: Number(best.priceUsd),
+      market_cap: Number(best.marketCap || best.fdv || 0) || null,
+      liquidity: Number((best.liquidity || {}).usd || 0) || null,
+      volume_h24: Number((best.volume || {}).h24 || 0) || null,
+      change_h24: best.priceChange && best.priceChange.h24 != null ? Number(best.priceChange.h24) : null,
+      pool: best.pairAddress,
+      name: (best.baseToken || {}).name,
+      symbol: (best.baseToken || {}).symbol,
+      logo: (best.info || {}).imageUrl,
+    };
+  }
+
+  async function fetchOhlcv(pool, range) {
+    const map = {
+      "1m": ["minute", 1], "5m": ["minute", 5], "15m": ["minute", 15],
+      "1H": ["hour", 1], "4H": ["hour", 4], "1D": ["day", 1],
+    };
+    const [tf, agg] = map[range] || ["minute", 15];
+    const url = "https://api.geckoterminal.com/api/v2/networks/solana/pools/"
+      + encodeURIComponent(pool) + "/ohlcv/" + tf + "?aggregate=" + agg + "&limit=200";
+    const r = await fetch(url, { cache: "no-store", headers: { Accept: "application/json" } });
+    if (!r.ok) throw new Error("ohlcv");
+    const d = await r.json();
+    const list = (((d || {}).data || {}).attributes || {}).ohlcv_list || [];
+    return list.map((row) => ({
+      time: Math.floor(Number(row[0])),
+      open: Number(row[1]),
+      high: Number(row[2]),
+      low: Number(row[3]),
+      close: Number(row[4]),
+    })).filter((x) => Number.isFinite(x.time) && Number.isFinite(x.open));
+  }
+
+  function applyCoinMarkers(series, markers) {
+    if (!series || !markers || !markers.length) return;
+    const mapped = markers.map((m) => {
+      const time = candleTime(m.ts || m.time);
+      if (time == null) return null;
+      const buy = (m.side || "") === "buy";
+      return {
+        time,
+        position: buy ? "belowBar" : "aboveBar",
+        color: buy ? "#00d35a" : "#ff453a",
+        shape: buy ? "arrowUp" : "arrowDown",
+        text: buy ? "Achat" : "Vente",
+      };
+    }).filter(Boolean).sort((a, b) => a.time - b.time);
+    try { series.setMarkers(mapped); } catch (e) {}
+  }
+
+  function ensureCoinChart(candles, markers) {
+    const el = $("#tvChart");
+    if (!el || typeof LightweightCharts === "undefined") return false;
+    if (!coinLive.chart) {
+      coinLive.chart = LightweightCharts.createChart(el, {
+        layout: { background: { color: "#000000" }, textColor: "rgba(235,235,245,0.6)", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" },
+        grid: { vertLines: { color: "rgba(84,84,88,0.22)" }, horzLines: { color: "rgba(84,84,88,0.22)" } },
+        rightPriceScale: { borderColor: "rgba(84,84,88,0.35)", scaleMargins: { top: 0.12, bottom: 0.08 } },
+        timeScale: { borderColor: "rgba(84,84,88,0.35)", timeVisible: true, secondsVisible: false },
+        crosshair: { mode: 0 },
+        width: el.clientWidth || el.parentElement.clientWidth,
+        height: 280,
+        handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+        handleScale: { pinch: true, mouseWheel: false },
+      });
+      coinLive.series = coinLive.chart.addCandlestickSeries({
+        upColor: "#00d35a", downColor: "#ff453a",
+        wickUpColor: "#00d35a", wickDownColor: "#ff453a",
+        borderVisible: false,
+      });
+      const ro = new ResizeObserver(() => {
+        if (!coinLive.chart) return;
+        const w = el.clientWidth;
+        if (w) coinLive.chart.applyOptions({ width: w });
+      });
+      ro.observe(el);
+      coinLive._ro = ro;
+    }
+    if (candles && candles.length) {
+      const seen = new Set();
+      const data = candles.filter((c) => {
+        if (seen.has(c.time)) return false;
+        seen.add(c.time);
+        return true;
+      }).sort((a, b) => a.time - b.time);
+      coinLive.series.setData(data);
+      applyCoinMarkers(coinLive.series, markers);
+      coinLive.chart.timeScale().fitContent();
+    }
+    return true;
+  }
+
+  async function tickCoin(mint, c) {
+    const pos = c && c.position;
+    try {
+      const dex = await fetchDexToken(mint);
+      if (dex) {
+        const priceEl = $("#coinPrice");
+        if (priceEl) priceEl.textContent = fmtPrice(dex.price);
+        if (pos && pos.entry_price && dex.price) {
+          const since = ((dex.price / Number(pos.entry_price)) - 1) * 100;
+          const el = $("#coinSince");
+          if (el) {
+            el.className = "sub " + (since >= 0 ? "up" : "down");
+            el.textContent = arrow(since) + " " + fmtPct(since) + " depuis l'entrée";
+          }
+          const pnl = Number(pos.size_usd || 0) * (dex.price / Number(pos.entry_price) - 1);
+          const pnlEl = $("#posPnl");
+          if (pnlEl) {
+            pnlEl.className = "v num " + (pnl >= 0 ? "up" : "down");
+            pnlEl.textContent = signedMoney(pnl) + " (" + fmtPct(since) + ")";
+          }
+          const curEl = $("#posNow");
+          if (curEl) curEl.textContent = fmtPrice(dex.price);
+        }
+        const chg = $("#coinChg");
+        if (chg && dex.change_h24 != null) {
+          chg.className = "chg " + (dex.change_h24 >= 0 ? "up" : "down");
+          chg.textContent = arrow(dex.change_h24) + " " + fmtPct(dex.change_h24) + " 24h";
+        }
+        const set = (id, val) => { const n = document.getElementById(id); if (n) n.textContent = val; };
+        set("statMcap", nusd(dex.market_cap));
+        set("statLiq", nusd(dex.liquidity));
+        set("statVol", nusd(dex.volume_h24));
+        try {
+          const ohlcv = await fetchOhlcv(dex.pool, coinLive.range);
+          if (ohlcv && ohlcv.length) ensureCoinChart(ohlcv, (c && c.markers) || []);
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
   async function renderCoin() {
     const mint = state.mint;
     let c;
     try { c = await api("/api/coin/" + mint); } catch (e) { app.innerHTML = `<div class="empty">${e.message}</div>`; return; }
     const pos = c.position;
+    const since = c.since_entry;
+    const sinceUp = since == null ? true : since >= 0;
+    const chg = c.stats && c.stats.change_h24;
+    const stat = c.stats || {};
+    const fallback = snapshotCandles(c);
     app.innerHTML = `<div class="screen-head">
         <button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
-        <h1>${esc(c.name)} ${state.mode==="PAPER"?'<span class="pill paper">PAPER</span>':""}</h1>
+        <div class="coin-head">
+          ${logoHtml(c.logo_url, c.name || c.symbol)}
+          <div>
+            <h1>${esc(c.symbol || c.name)} ${state.mode==="PAPER"?'<span class="pill paper">PAPER</span>':""}</h1>
+            <div class="coin-subname">${esc(c.name || "")} · Solana</div>
+          </div>
+        </div>
         ${c.shield ? `<span class="chip">${c.shield}</span>` : ""}
       </div>
-      <div class="pad" style="color:var(--secondary);font-size:13px">${esc(c.symbol||"")} · Solana · ${c.age_h!=null?c.age_h+"h":""}</div>
-      <div class="display big-price num">${c.price!=null?c.price: "—"}</div>
-      <div class="sub ${c.since_entry>=0?"up":"down"}">${c.since_entry!=null?("▲ "+fmtPct(c.since_entry)+" depuis l\'entrée"):""}</div>
-      <div class="chart-wrap" style="height:220px"><canvas id="coinChart" style="width:100%;height:220px"></canvas></div>
+      <div class="display big-price num" id="coinPrice">${c.price!=null?fmtPrice(c.price): "—"}</div>
+      <div class="chg-row">
+        <div class="sub ${sinceUp?"up":"down"}" id="coinSince">${since!=null?(arrow(since)+" "+fmtPct(since)+" depuis l'entrée"):""}</div>
+        <div class="chg ${chg>=0?"up":"down"}" id="coinChg">${chg!=null?(arrow(chg)+" "+fmtPct(chg)+" 24h"):""}</div>
+      </div>
+      <div class="ranges" id="coinRanges">
+        ${["1m","5m","15m","1H","4H","1D"].map((r) =>
+          `<button data-r="${r}" class="${(coinLive.range||"15m")===r?"on":""}">${r}</button>`).join("")}
+      </div>
+      <div class="chart-wrap coin-chart">
+        <div id="tvChart" style="width:100%;height:280px"></div>
+        <canvas id="coinChart" class="hidden" style="width:100%;height:220px"></canvas>
+      </div>
       <div class="stats">
-        <div class="stat"><div class="k">Market cap</div><div class="v">${nfmt(c.stats.market_cap)}</div></div>
-        <div class="stat"><div class="k">Liquidité</div><div class="v">${nfmt(c.stats.liquidity)}</div></div>
-        <div class="stat"><div class="k">Volume 24h</div><div class="v">${nfmt(c.stats.volume_h24)}</div></div>
-        <div class="stat"><div class="k">Holders</div><div class="v">${c.stats.holders==null?"n/a":c.stats.holders}</div></div>
+        <div class="stat"><div class="k">Market cap</div><div class="v num" id="statMcap">${nusd(stat.market_cap)}</div></div>
+        <div class="stat"><div class="k">Liquidité</div><div class="v num" id="statLiq">${nusd(stat.liquidity)}</div></div>
+        <div class="stat"><div class="k">Volume 24h</div><div class="v num" id="statVol">${nusd(stat.volume_h24)}</div></div>
+        <div class="stat"><div class="k">Holders</div><div class="v num" id="statHold">${stat.holders==null?"n/a":stat.holders}</div></div>
       </div>
       ${pos ? `<div class="pos-card">
-        <div>Ta position · ${money(pos.size_usd)} misés · Executor</div>
-        <div class="s" style="color:var(--secondary);margin-top:8px">
-          Stop ${pos.stop_price} · trail ${c.trail_line || "—"} ·
-          ${c.timeout_left_s!=null?Math.round(c.timeout_left_s/60)+"m left":""}
+        <div class="pos-title">Ta position PAPER${pos.copy_trader ? " · copie " + esc(pos.copy_trader) : ""}</div>
+        <div class="pos-grid">
+          <div><div class="k">Misés</div><div class="v num">${money(pos.size_usd)}</div></div>
+          <div><div class="k">Entrée</div><div class="v num">${fmtPrice(pos.entry_price)}</div></div>
+          <div><div class="k">Actuel</div><div class="v num" id="posNow">${fmtPrice(c.price)}</div></div>
+          <div><div class="k">P&amp;L</div><div class="v num ${sinceUp?"up":"down"}" id="posPnl">${since!=null?(signedMoney((pos.size_usd||0)*((c.price||pos.entry_price)/pos.entry_price-1))+" ("+fmtPct(since)+")"):"—"}</div></div>
         </div>
+        <div class="s pos-stop">Stop ${fmtPrice(pos.stop_price)}${c.trail_line ? " · trail " + fmtPrice(c.trail_line) : ""}${c.timeout_left_s!=null?" · "+Math.round(c.timeout_left_s/60)+"m restantes":""}</div>
       </div>` : ""}
       <a class="cta" href="${c.coin_url}" target="_blank" rel="noopener">${pos ? "Vendre sur FOMO" : "Acheter sur FOMO"}</a>`;
-    $("#back").onclick = () => { state.screen = "home"; render(); };
-    DeskCharts.drawCandles($("#coinChart"), c.candles, c.exit_line);
+    $("#back").onclick = () => { stopCoinLive(); state.screen = "home"; render(); };
+    const ranges = $("#coinRanges");
+    if (ranges) ranges.onclick = (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      coinLive.range = b.dataset.r;
+      ranges.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      tickCoin(mint, c);
+    };
+    const usedTv = ensureCoinChart(fallback, c.markers || []);
+    if (!usedTv) {
+      const canvas = $("#coinChart");
+      if (canvas) {
+        canvas.classList.remove("hidden");
+        const tv = $("#tvChart"); if (tv) tv.classList.add("hidden");
+        if (typeof DeskCharts !== "undefined") DeskCharts.drawCandles(canvas, c.candles, c.exit_line);
+      }
+    }
+    if (coinLive.timer) { clearInterval(coinLive.timer); coinLive.timer = null; }
+    coinLive.mint = mint;
+    tickCoin(mint, c);
+    coinLive.timer = setInterval(() => tickCoin(mint, c), 6000);
   }
 
   async function renderAuditor() {
@@ -588,8 +840,9 @@
         <div class="mid"><div class="t">${esc(l.name)}</div><div class="s">${esc(l.value)}</div></div>
         <span class="mark">${l.pass ? "✓" : "✗"}</span></div>`
     ).join("");
+    const n = (a.layers && a.layers.length) || 9;
     const foot = a.passed
-      ? `Validé · 8/8 parties<br>Envoyé à Analyst`
+      ? `Validé · ${n}/${n} parties<br>Envoyé à Analyst`
       : `Rejeté · ${esc(a.reason||"")}<br>Grok Bot n'achètera pas ${esc(a.name)}`;
     app.innerHTML = `<div class="screen-head">
         <button class="back" id="back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>

@@ -212,3 +212,26 @@ input, select { font: inherit; }
 .hg-rule { margin-top: 12px; color: var(--secondary); font-size: 12px; line-height: 1.35; }
 .status-pill.skip, .status-pill.unverified { background: var(--card2); color: var(--secondary); }
 .status-pill.blocked, .status-pill.unfillable { background: rgba(255,69,58,0.16); color: var(--red); }
+
+/* FOMO-like token list + coin detail */
+.token-row { gap: 10px; }
+.token-row .px { font-variant-numeric: tabular-nums; letter-spacing: -0.2px; }
+.spark { flex: 0 0 72px; width: 72px; height: 28px; display: block; }
+
+.coin-head { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.coin-head h1 { text-align: left; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.coin-head .logo { width: 36px; height: 36px; border-radius: 18px; }
+.coin-subname { color: var(--secondary); font-size: 12px; font-weight: 500; margin-top: 1px; }
+.chg-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 16px 4px; }
+.chg-row .sub { padding: 0; }
+.chg { font-size: 15px; font-weight: 600; }
+.chg.up, .v.up { color: var(--green); }
+.chg.down, .v.down { color: var(--red); }
+.coin-chart { height: 280px; padding: 0; margin: 0 0 8px; }
+.coin-chart #tvChart { height: 280px; }
+.pos-title { font-size: 15px; font-weight: 650; margin-bottom: 10px; }
+.pos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+.pos-grid .k, .pos-stop { color: var(--secondary); font-size: 12px; }
+.pos-grid .v { font-size: 16px; font-weight: 650; margin-top: 2px; }
+.pos-stop { margin-top: 12px; font-size: 13px; }
+.cta { background: #fff; color: #000; }
