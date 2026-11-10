@@ -1,4 +1,4 @@
-const CACHE = "desk-static-v1";
+const CACHE = "desk-static-v3";
 const ASSETS = ["./index.html", "./app.js", "./app.css", "./chart.js", "./manifest.json"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS).catch(() => {})).then(() => self.skipWaiting()));
