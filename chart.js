@@ -212,5 +212,161 @@
     ctx.fillText(score == null ? "—" : String(score), cx, cy);
   }
 
-  global.DeskCharts = { drawLineChart, drawCandles, drawScoreRing, nice };
+
+  function parseTs(ts) {
+    if (ts == null) return NaN;
+    if (typeof ts === "number") return ts > 1e12 ? ts : ts * 1000;
+    const t = new Date(ts).getTime();
+    return t;
+  }
+
+  function drawEquityFrame(canvas, opts) {
+    const { ctx, w, h } = dpr(canvas);
+    ctx.clearRect(0, 0, w, h);
+    const points = (opts && opts.points) || [];
+    const marks = (opts && opts.marks) || [];
+    const startValue = opts && opts.startValue;
+    const t0 = opts && opts.t0;
+    const t1 = opts && opts.t1;
+    const drawUntil = (opts && opts.drawUntil != null) ? opts.drawUntil : t1;
+    const yMin = opts && opts.yMin;
+    const yMax = opts && opts.yMax;
+    const up = opts && opts.up;
+    const tipPhase = (opts && opts.tipPhase) || 0;
+    const neon = up === false ? "#ff453a" : "#00ff6a";
+    const glow = up === false ? "rgba(255,69,58,0.55)" : "rgba(0,255,106,0.55)";
+    const fillTop = up === false ? "rgba(255,69,58,0.22)" : "rgba(0,255,106,0.22)";
+    const left = 8, right = w - 8, top = 36, bot = h - 10;
+    const spanT = (t1 - t0) || 1;
+    const xAt = (t) => left + ((t - t0) / spanT) * (right - left);
+    const spanY = (yMax - yMin) || 1;
+    const yAt = (v) => bot - ((v - yMin) / spanY) * (bot - top);
+
+    if (!points.length || !Number.isFinite(t0) || !Number.isFinite(t1)) {
+      ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = "rgba(235,235,245,0.3)";
+      ctx.beginPath();
+      ctx.moveTo(left, h * 0.65);
+      ctx.lineTo(right, h * 0.65);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(235,235,245,0.6)";
+      ctx.font = "13px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("En attente du premier mouvement", w / 2, h * 0.65 - 14);
+      return { tip: null, marks: [] };
+    }
+
+    const pts = [];
+    for (const p of points) {
+      const t = parseTs(p.ts);
+      if (!Number.isFinite(t)) continue;
+      if (t < t0 - 1000) continue;
+      if (drawUntil != null && t > drawUntil + 1) continue;
+      pts.push({ t, v: +p.value });
+    }
+    if (!pts.length) return { tip: null, marks: [] };
+    pts.sort((a, b) => a.t - b.t);
+    // extend last value to the draw head (LIVE tip at "now")
+    if (drawUntil != null && drawUntil > pts[pts.length - 1].t) {
+      pts.push({ t: drawUntil, v: pts[pts.length - 1].v });
+    }
+
+    if (startValue != null && Number.isFinite(+startValue)) {
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(235,235,245,0.22)";
+      ctx.beginPath();
+      ctx.moveTo(left, yAt(+startValue));
+      ctx.lineTo(right, yAt(+startValue));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = xAt(p.t), y = yAt(p.v);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    const last = pts[pts.length - 1];
+    ctx.lineTo(xAt(last.t), bot);
+    ctx.lineTo(xAt(pts[0].t), bot);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, top, 0, bot);
+    g.addColorStop(0, fillTop);
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = xAt(p.t), y = yAt(p.v);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = neon;
+    ctx.lineWidth = 2.2;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 12;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+
+    const tip = { x: xAt(last.t), y: yAt(last.v) };
+    const pulse = 1 + 0.35 * Math.sin(tipPhase * Math.PI * 2);
+    ctx.beginPath();
+    ctx.arc(tip.x, tip.y, 10 * pulse, 0, Math.PI * 2);
+    ctx.fillStyle = up === false ? "rgba(255,69,58,0.16)" : "rgba(0,255,106,0.16)";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(tip.x, tip.y, 4.2, 0, Math.PI * 2);
+    ctx.fillStyle = neon;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    const markPos = [];
+    marks.forEach((m) => {
+      const t = parseTs(m.ts);
+      if (!Number.isFinite(t)) return;
+      if (t < t0 || t > t1) return;
+      if (drawUntil != null && t > drawUntil + 50) return;
+      // value at mark time
+      let v = pts[0].v;
+      if (t <= pts[0].t) v = pts[0].v;
+      else if (t >= pts[pts.length - 1].t) v = pts[pts.length - 1].v;
+      else {
+        for (let i = 1; i < pts.length; i++) {
+          if (t <= pts[i].t) {
+            const a = pts[i - 1], b = pts[i];
+            const r = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+            v = a.v + r * (b.v - a.v);
+            break;
+          }
+        }
+      }
+      markPos.push({
+        x: xAt(t), y: yAt(v),
+        kind: m.kind, label: m.label || "", value: m.value || "",
+        mint: m.mint || "", logo: m.logo_url || "", symbol: m.symbol || "",
+        subtitle: m.subtitle || "", ts: m.ts,
+        id: (m.kind || "") + "|" + (m.ts || "") + "|" + (m.mint || ""),
+      });
+    });
+    // dots under pills
+    markPos.forEach((m) => {
+      const buy = m.kind === "bought";
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, 3.2, 0, Math.PI * 2);
+      ctx.fillStyle = buy ? "#00ff6a" : "#ff453a";
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "#000";
+      ctx.stroke();
+    });
+    return { tip, marks: markPos, width: w, height: h };
+  }
+
+  global.DeskCharts = { drawLineChart, drawCandles, drawScoreRing, drawEquityFrame, parseTs, nice };
 })(window);
